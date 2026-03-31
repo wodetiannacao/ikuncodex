@@ -1,0 +1,6 @@
+---
+source: tui/src/chatwidget/tests.rs
+assertion_line: 6931
+expression: exec_blob
+---
+• Ran sleep 1 (0ms) [exit 1]

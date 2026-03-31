@@ -1,0 +1,11 @@
+---
+source: tui_app_server/src/chatwidget/tests.rs
+assertion_line: 6414
+expression: snapshot
+---
+History:
+• Ran 1 · 1 commands · echo repro-marker · 5ms total
+
+Active:
+• Exploring
+  └ Read null

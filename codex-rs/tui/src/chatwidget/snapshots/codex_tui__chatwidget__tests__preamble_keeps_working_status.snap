@@ -1,0 +1,12 @@
+---
+source: tui/src/chatwidget/tests.rs
+expression: terminal.backend()
+---
+"                                                                                "
+"• Working (0s • esc to interrupt)                                               "
+"                                                                                "
+"────────────────────────────────────────────────────────────────────────────────"
+"❯ Ask Codex to do anything                                                      "
+"────────────────────────────────────────────────────────────────────────────────"
+"   GPT 5.3 Codex │ 󰉋 tui │  - · - tokens                                      "
+"                                                                                "

@@ -1,0 +1,6 @@
+---
+source: tui/src/history_cell.rs
+assertion_line: 3924
+expression: rendered
+---
+• Ran seq 1 10 1>&2 && false (1ms) [exit 1]

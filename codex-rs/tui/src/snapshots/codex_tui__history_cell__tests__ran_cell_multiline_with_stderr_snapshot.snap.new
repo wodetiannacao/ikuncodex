@@ -1,0 +1,6 @@
+---
+source: tui/src/history_cell.rs
+assertion_line: 3974
+expression: rendered
+---
+• Ran echo this_is_a_very_l…

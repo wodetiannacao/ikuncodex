@@ -1,0 +1,6 @@
+---
+source: tui/src/history_cell.rs
+assertion_line: 3808
+expression: rendered
+---
+• Ran echo ok (1ms)

@@ -1,0 +1,10 @@
+---
+source: tui/src/chatwidget/tests.rs
+expression: terminal.backend()
+---
+"                                                                                "
+"────────────────────────────────────────────────────────────────────────────────"
+"❯ Ask Codex to do anything                                                      "
+"────────────────────────────────────────────────────────────────────────────────"
+"   GPT 5.4 ·xhi │ 󰉋 project │  - · - tokens                                   "
+"  gpt-5.4 xhigh fast · 100% left · /tmp/project                                 "

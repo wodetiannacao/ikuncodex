@@ -1,0 +1,6 @@
+---
+source: tui/src/chatwidget/tests.rs
+assertion_line: 9262
+expression: blob
+---
+• You ran ls (5ms)

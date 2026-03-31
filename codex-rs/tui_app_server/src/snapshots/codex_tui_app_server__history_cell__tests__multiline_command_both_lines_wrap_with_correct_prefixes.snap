@@ -1,0 +1,6 @@
+---
+source: tui_app_server/src/history_cell.rs
+assertion_line: 4115
+expression: rendered
+---
+• Ran first_token_is_long_e…

@@ -1,0 +1,6 @@
+---
+source: tui_app_server/src/chatwidget/tests.rs
+assertion_line: 4790
+expression: blob
+---
+• You ran 1 · 1 commands · python3 -c 'print("Hello, world!")' · 5ms total

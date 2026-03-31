@@ -1,0 +1,144 @@
+name: rust-ci
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# CI builds in debug (dev) for faster signal.
+
+jobs:
+  # --- Detect what changed (always runs) --------------------------------------
+  changed:
+    name: Detect changed areas
+    runs-on: ubuntu-24.04
+    outputs:
+      codex: ${{ steps.detect.outputs.codex }}
+      workflows: ${{ steps.detect.outputs.workflows }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Detect changed paths
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA='${{ github.event.pull_request.base.sha }}'
+            HEAD_SHA='${{ github.event.pull_request.head.sha }}'
+            mapfile -t files < <(git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA")
+          else
+            files=("codex-rs/force" ".github/force")
+          fi
+
+          codex=false
+          workflows=false
+          for f in "${files[@]}"; do
+            [[ $f == codex-rs/* ]] && codex=true
+            [[ $f == .github/* ]] && workflows=true
+          done
+
+          echo "codex=$codex" >> "$GITHUB_OUTPUT"
+          echo "workflows=$workflows" >> "$GITHUB_OUTPUT"
+
+  # --- Format check -----------------------------------------------------------
+  general:
+    name: Format / etc
+    runs-on: ubuntu-24.04
+    needs: changed
+    if: ${{ needs.changed.outputs.codex == 'true' || needs.changed.outputs.workflows == 'true' || github.event_name == 'push' }}
+    defaults:
+      run:
+        working-directory: codex-rs
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.93.0
+        with:
+          components: rustfmt
+      - name: cargo fmt
+        run: cargo fmt -- --config imports_granularity=Item --check
+
+  # --- Unused dependency check ------------------------------------------------
+  cargo_shear:
+    name: cargo shear
+    runs-on: ubuntu-24.04
+    needs: changed
+    if: ${{ needs.changed.outputs.codex == 'true' || needs.changed.outputs.workflows == 'true' || github.event_name == 'push' }}
+    defaults:
+      run:
+        working-directory: codex-rs
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.93.0
+      - uses: taiki-e/install-action@44c6d64aa62cd779e873306675c7a58e86d6d532 # v2
+        with:
+          tool: cargo-shear
+      - name: cargo shear
+        run: cargo shear
+
+  # --- Clippy lint on standard GitHub-hosted runners --------------------------
+  lint_build:
+    name: Lint/Build — ${{ matrix.runner }} - ${{ matrix.target }}${{ matrix.profile == 'release' && ' (release)' || '' }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    needs: changed
+    if: ${{ needs.changed.outputs.codex == 'true' || needs.changed.outputs.workflows == 'true' || github.event_name == 'push' }}
+    defaults:
+      run:
+        working-directory: codex-rs
+    env:
+      CARGO_INCREMENTAL: "0"
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            profile: dev
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            profile: dev
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Linux build dependencies
+        if: ${{ runner.os == 'Linux' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends pkg-config libcap-dev
+      - uses: dtolnay/rust-toolchain@1.93.0
+        with:
+          targets: ${{ matrix.target }}
+          components: clippy
+
+      - name: cargo clippy
+        run: cargo clippy --target ${{ matrix.target }} --all-features --tests --profile ${{ matrix.profile }} -- -D warnings
+
+  # --- Gatherer job (the ONLY required status check) --------------------------
+  results:
+    name: CI results (required)
+    needs: [changed, general, cargo_shear, lint_build]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Summarize
+        shell: bash
+        run: |
+          echo "general: ${{ needs.general.result }}"
+          echo "shear  : ${{ needs.cargo_shear.result }}"
+          echo "lint   : ${{ needs.lint_build.result }}"
+
+          if [[ '${{ needs.changed.outputs.codex }}' != 'true' && '${{ needs.changed.outputs.workflows }}' != 'true' && '${{ github.event_name }}' != 'push' ]]; then
+            echo 'No relevant changes -> CI not required.'
+            exit 0
+          fi
+
+          [[ '${{ needs.general.result }}' == 'success' ]] || { echo 'general failed'; exit 1; }
+          [[ '${{ needs.cargo_shear.result }}' == 'success' ]] || { echo 'cargo_shear failed'; exit 1; }
+          [[ '${{ needs.lint_build.result }}' == 'success' ]] || { echo 'lint_build failed'; exit 1; }

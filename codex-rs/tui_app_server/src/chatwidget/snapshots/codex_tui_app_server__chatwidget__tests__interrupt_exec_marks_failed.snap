@@ -1,0 +1,6 @@
+---
+source: tui_app_server/src/chatwidget/tests.rs
+assertion_line: 7798
+expression: exec_blob
+---
+• Failed 1 · 1 commands · sleep 1 · 0ms total
