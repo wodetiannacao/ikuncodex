@@ -62,11 +62,12 @@ use codex_terminal_detection::TerminalName;
     version,
     // If a sub‑command is given, ignore requirements of the default args.
     subcommand_negates_reqs = true,
-    // The executable is sometimes invoked via a platform‑specific name like
-    // `codex-x86_64-unknown-linux-musl`, but the help output should always use
-    // the generic `codex` command name that users run.
-    bin_name = "codex",
-    override_usage = "codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]"
+    // The native Rust executable inside the npm package still keeps the
+    // `codex` filename, but end users install and invoke the CLI via the
+    // `ikuncodex` wrapper command. Pin the help output to that launcher name
+    // so published help text matches what users actually type.
+    bin_name = "ikuncodex",
+    override_usage = "ikuncodex [OPTIONS] [PROMPT]\n       ikuncodex [OPTIONS] <COMMAND> [ARGS]"
 )]
 struct MultitoolCli {
     #[clap(flatten)]

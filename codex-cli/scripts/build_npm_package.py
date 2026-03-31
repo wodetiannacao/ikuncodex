@@ -219,6 +219,14 @@ def run_command(cmd: list[str], cwd: Path | None = None) -> None:
     subprocess.run(cmd, cwd=cwd, check=True)
 
 
+def resolve_node_command(command: str) -> str:
+    """Resolve Windows .cmd shims when Python launches npm/pnpm directly."""
+
+    if sys.platform == "win32":
+        return shutil.which(f"{command}.cmd") or shutil.which(command) or command
+    return shutil.which(command) or command
+
+
 def stage_codex_sdk_sources(staging_dir: Path) -> None:
     package_root = CODEX_SDK_ROOT
 
@@ -292,8 +300,9 @@ def run_npm_pack(staging_dir: Path, output_path: Path) -> Path:
 
     with tempfile.TemporaryDirectory(prefix="ikuncodex-npm-pack-") as pack_dir_str:
         pack_dir = Path(pack_dir_str)
+        npm_cmd = resolve_node_command("npm")
         stdout = subprocess.check_output(
-            ["npm", "pack", "--json", "--pack-destination", str(pack_dir)],
+            [npm_cmd, "pack", "--json", "--pack-destination", str(pack_dir)],
             cwd=staging_dir,
             text=True,
         )
@@ -327,4 +336,8 @@ if __name__ == "__main__":
 # 编号（如：1）：修改
 # 主要修改内容：将 npm 打包脚本中的主包名统一为 ikuncodex，并补齐本地安装验证提示与缺失常量。
 # 修改目的：让 stage/pack/release 流程围绕 ikuncodex 运转，避免发布链路残留旧包名。
+#
+# 编号（如：2）：修改
+# 主要修改内容：补充 Windows 下 npm 命令解析逻辑，优先定位 npm.cmd 可执行入口。
+# 修改目的：避免 Python 子进程在 Windows 环境里找不到 npm，保证本地 staging 能顺利产出 tgz。
 #

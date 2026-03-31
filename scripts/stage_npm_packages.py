@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+import sys
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -18,6 +19,7 @@ BUILD_SCRIPT = REPO_ROOT / "codex-cli" / "scripts" / "build_npm_package.py"
 INSTALL_NATIVE_DEPS = REPO_ROOT / "codex-cli" / "scripts" / "install_native_deps.py"
 WORKFLOW_NAME = ".github/workflows/rust-release.yml"
 GITHUB_REPO = "Haleclipse/codex"
+LOCAL_SDK_BIN_ROOT = REPO_ROOT / "sdk" / "python" / "src" / "codex_app_server" / "bin"
 
 _SPEC = importlib.util.spec_from_file_location("codex_build_npm_package", BUILD_SCRIPT)
 if _SPEC is None or _SPEC.loader is None:
@@ -96,19 +98,26 @@ def resolve_workflow_url(version: str, override: str | None) -> tuple[str, str |
     if override:
         return override, None
 
+    if shutil.which("gh") is None:
+        raise RuntimeError("GitHub CLI `gh` is not installed.")
+
     workflow = resolve_release_workflow(version)
     return workflow["url"], workflow.get("headSha")
 
 
 def install_native_components(
-    workflow_url: str,
+    workflow_url: str | None,
     components: set[str],
     vendor_root: Path,
 ) -> None:
     if not components:
         return
 
-    cmd = [str(INSTALL_NATIVE_DEPS), "--workflow-url", workflow_url]
+    cmd = [str(INSTALL_NATIVE_DEPS)]
+    if workflow_url:
+        cmd.extend(["--workflow-url", workflow_url])
+    if LOCAL_SDK_BIN_ROOT.exists():
+        cmd.extend(["--local-sdk-bin-root", str(LOCAL_SDK_BIN_ROOT)])
     for component in sorted(components):
         cmd.extend(["--component", component])
     cmd.append(str(vendor_root))
@@ -116,6 +125,8 @@ def install_native_components(
 
 
 def run_command(cmd: list[str]) -> None:
+    if cmd and cmd[0].endswith(".py"):
+        cmd = [sys.executable, *cmd]
     print("+", " ".join(cmd))
     subprocess.run(cmd, cwd=REPO_ROOT, check=True)
 
@@ -139,9 +150,16 @@ def main() -> int:
 
     try:
         if native_components:
-            workflow_url, resolved_head_sha = resolve_workflow_url(
-                args.release_version, args.workflow_url
-            )
+            workflow_url: str | None = None
+            try:
+                workflow_url, resolved_head_sha = resolve_workflow_url(
+                    args.release_version, args.workflow_url
+                )
+            except RuntimeError as exc:
+                print(
+                    "Falling back to local/native-light staging because workflow resolution "
+                    f"was unavailable: {exc}"
+                )
             vendor_temp_root = Path(tempfile.mkdtemp(prefix="npm-native-", dir=runner_temp))
             install_native_components(workflow_url, native_components, vendor_temp_root)
             vendor_src = vendor_temp_root / "vendor"
@@ -187,3 +205,9 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+#
+# 编号（如：1）：修改
+# 主要修改内容：为 npm staging 流程增加了无 gh 环境下的本地回退路径，并自动转发本地 SDK 二进制目录。
+# 修改目的：让当前机器即使没有 GitHub CLI，也能先产出可发布的 ikuncodex npm 包进行本地验证和后续发布。
+#

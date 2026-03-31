@@ -14,21 +14,27 @@ from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import sys
+import time
 from typing import Iterable, Sequence
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 CODEX_CLI_ROOT = SCRIPT_DIR.parent
+REPO_ROOT = CODEX_CLI_ROOT.parent
+WORKSPACE_ROOT = REPO_ROOT.parent.parent
 DEFAULT_WORKFLOW_URL = "https://github.com/Haleclipse/codex/actions/runs/21107751432"  # rust-v0.87.0-cometix
 VENDOR_DIR_NAME = "vendor"
 RG_MANIFEST = CODEX_CLI_ROOT / "bin" / "rg"
+LOCAL_SDK_BIN_ROOT = REPO_ROOT / "sdk" / "python" / "src" / "codex_app_server" / "bin"
+LOCAL_DEV_CODEX_DEBUG_DIR = WORKSPACE_ROOT / ".cargo-target-final" / "codex-rs" / "debug"
 BINARY_TARGETS = (
     "x86_64-unknown-linux-musl",
     "aarch64-unknown-linux-musl",
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
     "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
 )
 
 
@@ -73,12 +79,22 @@ RG_TARGET_PLATFORM_PAIRS: list[tuple[str, str]] = [
     ("x86_64-apple-darwin", "macos-x86_64"),
     ("aarch64-apple-darwin", "macos-aarch64"),
     ("x86_64-pc-windows-msvc", "windows-x86_64"),
+    ("aarch64-pc-windows-msvc", "windows-aarch64"),
 ]
 RG_TARGET_TO_PLATFORM = {target: platform for target, platform in RG_TARGET_PLATFORM_PAIRS}
 DEFAULT_RG_TARGETS = [target for target, _ in RG_TARGET_PLATFORM_PAIRS]
+TARGET_TO_LOCAL_SDK_DIR = {
+    "x86_64-unknown-linux-musl": "linux-x64",
+    "aarch64-unknown-linux-musl": "linux-arm64",
+    "x86_64-apple-darwin": "darwin-x64",
+    "aarch64-apple-darwin": "darwin-arm64",
+    "x86_64-pc-windows-msvc": "windows-x64",
+    "aarch64-pc-windows-msvc": "windows-arm64",
+}
 
 # urllib.request.urlopen() defaults to no timeout (can hang indefinitely), which is painful in CI.
 DOWNLOAD_TIMEOUT_SECS = 60
+DOWNLOAD_RETRIES = 3
 
 
 def _gha_enabled() -> bool:
@@ -138,6 +154,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--local-sdk-bin-root",
+        type=Path,
+        help=(
+            "Optional directory containing prebuilt codex binaries laid out like "
+            "sdk/python/src/codex_app_server/bin. When provided, or when the default local "
+            "SDK bin directory exists, the main codex binary is copied from there instead of "
+            "requiring GitHub Actions artifacts."
+        ),
+    )
+    parser.add_argument(
         "root",
         nargs="?",
         type=Path,
@@ -167,18 +193,46 @@ def main() -> int:
     if not workflow_url:
         workflow_url = DEFAULT_WORKFLOW_URL
 
-    workflow_id = workflow_url.rstrip("/").split("/")[-1]
-    print(f"Downloading native artifacts from workflow {workflow_id}...")
+    local_sdk_bin_root = (
+        args.local_sdk_bin_root.resolve()
+        if args.local_sdk_bin_root
+        else (LOCAL_SDK_BIN_ROOT.resolve() if LOCAL_SDK_BIN_ROOT.exists() else None)
+    )
 
-    with _gha_group(f"Download native artifacts from workflow {workflow_id}"):
-        with tempfile.TemporaryDirectory(prefix="codex-native-artifacts-") as artifacts_dir_str:
-            artifacts_dir = Path(artifacts_dir_str)
-            _download_artifacts(workflow_id, artifacts_dir)
-            install_binary_components(
-                artifacts_dir,
-                vendor_dir,
-                [BINARY_COMPONENTS[name] for name in components if name in BINARY_COMPONENTS],
-            )
+    artifact_components = [
+        BINARY_COMPONENTS[name]
+        for name in components
+        if name in BINARY_COMPONENTS and name != "codex"
+    ]
+    if "codex" in components and local_sdk_bin_root is None:
+        artifact_components.insert(0, BINARY_COMPONENTS["codex"])
+
+    workflow_id = workflow_url.rstrip("/").split("/")[-1] if workflow_url else None
+    gh_available = shutil.which("gh") is not None
+    should_download_artifacts = bool(artifact_components) and workflow_id is not None and gh_available
+
+    if local_sdk_bin_root is not None and "codex" in components:
+        print(f"Copying local codex binaries from {local_sdk_bin_root}...")
+        install_local_codex_binaries(local_sdk_bin_root, vendor_dir)
+
+    if should_download_artifacts:
+        print(f"Downloading native artifacts from workflow {workflow_id}...")
+
+        with _gha_group(f"Download native artifacts from workflow {workflow_id}"):
+            with tempfile.TemporaryDirectory(prefix="codex-native-artifacts-") as artifacts_dir_str:
+                artifacts_dir = Path(artifacts_dir_str)
+                _download_artifacts(workflow_id, artifacts_dir)
+                install_binary_components(
+                    artifacts_dir,
+                    vendor_dir,
+                    artifact_components,
+                )
+    elif artifact_components:
+        skipped = ", ".join(component.binary_basename for component in artifact_components)
+        print(
+            "Skipping GitHub Actions artifact download because `gh` is unavailable or no workflow "
+            f"URL was provided. The following optional native helpers were not staged: {skipped}"
+        )
 
     if "rg" in components:
         with _gha_group("Fetch ripgrep binaries"):
@@ -255,6 +309,71 @@ def fetch_rg(
             print(f"  installed ripgrep for {target}")
 
     return [results[target] for target in targets]
+
+
+def install_local_codex_binaries(local_sdk_bin_root: Path, vendor_dir: Path) -> list[Path]:
+    """Copy prebuilt codex binaries from the local Python SDK tree into vendor/."""
+
+    local_sdk_bin_root = local_sdk_bin_root.resolve()
+    if not local_sdk_bin_root.exists():
+        raise FileNotFoundError(f"Local SDK bin directory not found: {local_sdk_bin_root}")
+
+    installed: list[Path] = []
+    host_target = detect_host_target_triple()
+    for target, local_dir_name in TARGET_TO_LOCAL_SDK_DIR.items():
+        src_dir = local_sdk_bin_root / local_dir_name
+        binary_name = "codex.exe" if "windows" in target else "codex"
+        src_binary = src_dir / binary_name
+        if target == host_target:
+            local_dev_binary = LOCAL_DEV_CODEX_DEBUG_DIR / binary_name
+            if local_dev_binary.exists():
+                # Prefer the developer-built host binary when available so local npm
+                # smoke tests exercise the freshly modified CLI instead of an older
+                # SDK snapshot.
+                src_binary = local_dev_binary
+        if not src_binary.exists():
+            raise FileNotFoundError(f"Expected local codex binary not found: {src_binary}")
+
+        dest_dir = vendor_dir / target / "codex"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_binary = dest_dir / binary_name
+        shutil.copy2(src_binary, dest_binary)
+        if "windows" not in target:
+            dest_binary.chmod(0o755)
+        installed.append(dest_binary)
+        print(f"  installed local codex for {target}: {dest_binary}")
+
+    return installed
+
+
+def detect_host_target_triple() -> str | None:
+    platform = sys.platform
+    machine = os.environ.get("PROCESSOR_ARCHITECTURE", "").lower()
+    if not machine and hasattr(os, "uname"):
+        machine = os.uname().machine.lower()
+
+    if platform.startswith("win"):
+        if machine in {"amd64", "x86_64"}:
+            return "x86_64-pc-windows-msvc"
+        if machine in {"arm64", "aarch64"}:
+            return "aarch64-pc-windows-msvc"
+        return None
+
+    if platform == "darwin":
+        if machine in {"x86_64", "amd64"}:
+            return "x86_64-apple-darwin"
+        if machine in {"arm64", "aarch64"}:
+            return "aarch64-apple-darwin"
+        return None
+
+    if platform.startswith("linux"):
+        if machine in {"x86_64", "amd64"}:
+            return "x86_64-unknown-linux-musl"
+        if machine in {"arm64", "aarch64"}:
+            return "aarch64-unknown-linux-musl"
+        return None
+
+    return None
 
 
 def _download_artifacts(workflow_id: str, dest_dir: Path) -> None:
@@ -399,9 +518,26 @@ def _fetch_single_rg(
 def _download_file(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.unlink(missing_ok=True)
+    last_error: Exception | None = None
 
-    with urlopen(url, timeout=DOWNLOAD_TIMEOUT_SECS) as response, open(dest, "wb") as out:
-        shutil.copyfileobj(response, out)
+    for attempt in range(1, DOWNLOAD_RETRIES + 1):
+        try:
+            with urlopen(url, timeout=DOWNLOAD_TIMEOUT_SECS) as response, open(dest, "wb") as out:
+                shutil.copyfileobj(response, out)
+            return
+        except Exception as exc:  # noqa: BLE001 - preserve exact download failure context
+            last_error = exc
+            dest.unlink(missing_ok=True)
+            if attempt == DOWNLOAD_RETRIES:
+                break
+            print(
+                f"  download retry {attempt}/{DOWNLOAD_RETRIES - 1} for {url}",
+                flush=True,
+            )
+            time.sleep(min(5 * attempt, 15))
+
+    assert last_error is not None
+    raise last_error
 
 
 def extract_archive(
@@ -452,12 +588,23 @@ def extract_archive(
 
 
 def _load_manifest(manifest_path: Path) -> dict:
-    cmd = ["dotslash", "--", "parse", str(manifest_path)]
-    stdout = subprocess.check_output(cmd, text=True)
-    try:
-        manifest = json.loads(stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Invalid DotSlash manifest output from {manifest_path}.") from exc
+    dotslash = shutil.which("dotslash")
+    if dotslash is not None:
+        cmd = [dotslash, "--", "parse", str(manifest_path)]
+        stdout = subprocess.check_output(cmd, text=True)
+        try:
+            manifest = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Invalid DotSlash manifest output from {manifest_path}.") from exc
+    else:
+        raw_text = manifest_path.read_text(encoding="utf-8")
+        _, _, json_blob = raw_text.partition("\n")
+        try:
+            manifest = json.loads(json_blob)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Unable to parse DotSlash manifest JSON directly from {manifest_path}."
+            ) from exc
 
     if not isinstance(manifest, dict):
         raise RuntimeError(
@@ -471,3 +618,13 @@ if __name__ == "__main__":
     import sys
 
     sys.exit(main())
+
+#
+# 编号（如：1）：修改
+# 主要修改内容：为原生依赖安装脚本增加了本地 SDK 二进制回退路径，并在缺少 dotslash 时直接解析 rg 清单。
+# 修改目的：让这台机器在没有 gh 和 dotslash 的情况下，仍然可以产出可发布的 ikuncodex npm vendor 目录。
+#
+# 编号（如：2）：修改
+# 主要修改内容：为原生依赖下载增加多次重试机制，并补齐 Windows ARM64 目标和本机开发版 codex 二进制优先逻辑。
+# 修改目的：降低跨平台 ripgrep 下载的网络抖动影响，同时让 Windows x64 首发包优先带上当前本地修改后的 codex.exe。
+#
