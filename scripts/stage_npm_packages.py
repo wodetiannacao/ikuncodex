@@ -27,6 +27,7 @@ _BUILD_MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_BUILD_MODULE)
 PACKAGE_NATIVE_COMPONENTS = getattr(_BUILD_MODULE, "PACKAGE_NATIVE_COMPONENTS", {})
 WINDOWS_ONLY_COMPONENTS = getattr(_BUILD_MODULE, "WINDOWS_ONLY_COMPONENTS", {})
+PLATFORM_PACKAGE_METADATA = getattr(_BUILD_MODULE, "PLATFORM_PACKAGE_METADATA", {})
 resolve_package_publish_name = getattr(
     _BUILD_MODULE, "resolve_package_publish_name", lambda package: package
 )
@@ -79,6 +80,17 @@ def collect_native_components(packages: list[str]) -> set[str]:
         components.update(PACKAGE_NATIVE_COMPONENTS.get(package, []))
         components.update(WINDOWS_ONLY_COMPONENTS.get(package, []))
     return components
+
+
+def expand_release_packages(packages: list[str]) -> list[str]:
+    """Ensure the main ikuncodex package is always released with every platform child package."""
+
+    expanded = list(packages)
+    if "codex" in expanded:
+        for platform_package in PLATFORM_PACKAGE_METADATA:
+            if platform_package not in expanded:
+                expanded.append(platform_package)
+    return expanded
 
 
 def resolve_release_workflow(version: str) -> dict:
@@ -150,7 +162,7 @@ def main() -> int:
 
     runner_temp = Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir()))
 
-    packages = list(args.packages)
+    packages = expand_release_packages(list(args.packages))
     native_components = collect_native_components(packages)
 
     vendor_temp_root: Path | None = None
@@ -204,7 +216,7 @@ def main() -> int:
                 if not args.keep_staging_dirs:
                     shutil.rmtree(staging_dir, ignore_errors=True)
 
-            final_messsages.append(f"Staged {package} at {pack_output}")
+            final_messsages.append(f"Staged {publish_name} at {pack_output}")
     finally:
         if vendor_temp_root is not None and not args.keep_staging_dirs:
             shutil.rmtree(vendor_temp_root, ignore_errors=True)
@@ -230,4 +242,8 @@ if __name__ == "__main__":
 # 编号（如：3）：修改
 # 主要修改内容：新增 --vendor-src 参数，允许 staging 直接复用已准备好的 vendor 根目录。
 # 修改目的：避免拆包发布时反复依赖 gh 下载旧 workflow 构件，让当前机器可以稳定复用已验证的本地 vendor 产物。
+#
+# 编号（如：4）：修改
+# 主要修改内容：当 staging 主包 codex 时自动补齐全部平台子包，并将最终输出信息统一为真实发布名。
+# 修改目的：避免维护者误只发布主包导致安装后缺少 native 子包，同时减少内部包 key 与真实 npm 包名混淆。
 #

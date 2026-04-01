@@ -23,7 +23,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 CODEX_CLI_ROOT = SCRIPT_DIR.parent
 REPO_ROOT = CODEX_CLI_ROOT.parent
 WORKSPACE_ROOT = REPO_ROOT.parent.parent
-DEFAULT_WORKFLOW_URL = "https://github.com/Haleclipse/codex/actions/runs/21107751432"  # rust-v0.87.0-cometix
+DEFAULT_WORKFLOW_URL = os.environ.get("IKUNCODEX_WORKFLOW_URL", "").strip()
 DEFAULT_ARTIFACT_REPO = os.environ.get("IKUNCODEX_GITHUB_REPO", "wodetiannacao/ikuncodex")
 VENDOR_DIR_NAME = "vendor"
 RG_MANIFEST = CODEX_CLI_ROOT / "bin" / "rg"
@@ -191,8 +191,6 @@ def main() -> int:
     ]
 
     workflow_url = (args.workflow_url or DEFAULT_WORKFLOW_URL).strip()
-    if not workflow_url:
-        workflow_url = DEFAULT_WORKFLOW_URL
 
     local_sdk_bin_root = (
         args.local_sdk_bin_root.resolve()
@@ -632,4 +630,8 @@ if __name__ == "__main__":
 # 编号（如：3）：修改
 # 主要修改内容：将 GitHub Actions artifact 下载仓库改为可配置的 ikuncodex 仓库默认值，而不再硬编码旧仓库。
 # 修改目的：避免后续正式重打包时从错误仓库下载构件，保证拆包发布链与当前 GitHub 仓库保持一致。
+#
+# 编号（如：4）：修改
+# 主要修改内容：移除旧仓库 run id 的默认 workflow URL，改为通过环境变量或显式参数传入。
+# 修改目的：避免脚本在当前仓库里默认指向无效的旧 workflow，从而让正式拆包和本地复用 vendor 的行为更可预期。
 #
