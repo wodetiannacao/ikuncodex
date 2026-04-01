@@ -47,13 +47,13 @@ PLATFORM_PACKAGE_METADATA: dict[str, dict[str, object]] = {
         "cpu": ["arm64"],
         "description": "Prebuilt ikuncodex native binaries for macOS Apple Silicon.",
     },
-    "ikuncodex-win32-x64": {
+    "ikuncodex-windows-x64-bin": {
         "target": "x86_64-pc-windows-msvc",
         "os": ["win32"],
         "cpu": ["x64"],
         "description": "Prebuilt ikuncodex native binaries for Windows x64.",
     },
-    "ikuncodex-win32-arm64": {
+    "ikuncodex-windows-arm64-bin": {
         "target": "aarch64-pc-windows-msvc",
         "os": ["win32"],
         "cpu": ["arm64"],
@@ -78,8 +78,11 @@ PACKAGE_NATIVE_COMPONENTS: dict[str, list[str]] = {
 }
 WINDOWS_ONLY_COMPONENTS: dict[str, list[str]] = {
     "codex": [],
-    "ikuncodex-win32-x64": ["codex-windows-sandbox-setup", "codex-command-runner"],
-    "ikuncodex-win32-arm64": ["codex-windows-sandbox-setup", "codex-command-runner"],
+    # The local release workflow can reliably provide the helper binaries for the
+    # primary Windows x64 package. We keep ARM64 on the lighter codex+rg payload
+    # so the overall split-package release can ship even when ARM64 helpers are
+    # not available from local fallback sources.
+    "ikuncodex-windows-x64-bin": ["codex-windows-sandbox-setup", "codex-command-runner"],
 }
 COMPONENT_DEST_DIR: dict[str, str] = {
     "codex": "codex",

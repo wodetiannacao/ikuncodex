@@ -17,8 +17,8 @@ const PLATFORM_PACKAGE_BY_TARGET = {
   "aarch64-unknown-linux-musl": "ikuncodex-linux-arm64",
   "x86_64-apple-darwin": "ikuncodex-darwin-x64",
   "aarch64-apple-darwin": "ikuncodex-darwin-arm64",
-  "x86_64-pc-windows-msvc": "ikuncodex-win32-x64",
-  "aarch64-pc-windows-msvc": "ikuncodex-win32-arm64",
+  "x86_64-pc-windows-msvc": "ikuncodex-windows-x64-bin",
+  "aarch64-pc-windows-msvc": "ikuncodex-windows-arm64-bin",
 };
 
 const { platform, arch } = process;

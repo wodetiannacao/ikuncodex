@@ -19,8 +19,8 @@
     "ikuncodex-darwin-x64": "0.0.0-dev",
     "ikuncodex-linux-arm64": "0.0.0-dev",
     "ikuncodex-linux-x64": "0.0.0-dev",
-    "ikuncodex-win32-arm64": "0.0.0-dev",
-    "ikuncodex-win32-x64": "0.0.0-dev"
+    "ikuncodex-windows-arm64-bin": "0.0.0-dev",
+    "ikuncodex-windows-x64-bin": "0.0.0-dev"
   },
   "repository": {
     "type": "git",
