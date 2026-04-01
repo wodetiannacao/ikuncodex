@@ -24,6 +24,7 @@ CODEX_CLI_ROOT = SCRIPT_DIR.parent
 REPO_ROOT = CODEX_CLI_ROOT.parent
 WORKSPACE_ROOT = REPO_ROOT.parent.parent
 DEFAULT_WORKFLOW_URL = "https://github.com/Haleclipse/codex/actions/runs/21107751432"  # rust-v0.87.0-cometix
+DEFAULT_ARTIFACT_REPO = os.environ.get("IKUNCODEX_GITHUB_REPO", "wodetiannacao/ikuncodex")
 VENDOR_DIR_NAME = "vendor"
 RG_MANIFEST = CODEX_CLI_ROOT / "bin" / "rg"
 LOCAL_SDK_BIN_ROOT = REPO_ROOT / "sdk" / "python" / "src" / "codex_app_server" / "bin"
@@ -384,7 +385,7 @@ def _download_artifacts(workflow_id: str, dest_dir: Path) -> None:
         "--dir",
         str(dest_dir),
         "--repo",
-        "Haleclipse/codex",
+        DEFAULT_ARTIFACT_REPO,
         workflow_id,
     ]
     subprocess.check_call(cmd)
@@ -627,4 +628,8 @@ if __name__ == "__main__":
 # 编号（如：2）：修改
 # 主要修改内容：为原生依赖下载增加多次重试机制，并补齐 Windows ARM64 目标和本机开发版 codex 二进制优先逻辑。
 # 修改目的：降低跨平台 ripgrep 下载的网络抖动影响，同时让 Windows x64 首发包优先带上当前本地修改后的 codex.exe。
+#
+# 编号（如：3）：修改
+# 主要修改内容：将 GitHub Actions artifact 下载仓库改为可配置的 ikuncodex 仓库默认值，而不再硬编码旧仓库。
+# 修改目的：避免后续正式重打包时从错误仓库下载构件，保证拆包发布链与当前 GitHub 仓库保持一致。
 #

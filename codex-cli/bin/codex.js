@@ -13,12 +13,12 @@ const __dirname = path.dirname(__filename);
 const require = createRequire(import.meta.url);
 
 const PLATFORM_PACKAGE_BY_TARGET = {
-  "x86_64-unknown-linux-musl": "@openai/codex-linux-x64",
-  "aarch64-unknown-linux-musl": "@openai/codex-linux-arm64",
-  "x86_64-apple-darwin": "@openai/codex-darwin-x64",
-  "aarch64-apple-darwin": "@openai/codex-darwin-arm64",
-  "x86_64-pc-windows-msvc": "@openai/codex-win32-x64",
-  "aarch64-pc-windows-msvc": "@openai/codex-win32-arm64",
+  "x86_64-unknown-linux-musl": "ikuncodex-linux-x64",
+  "aarch64-unknown-linux-musl": "ikuncodex-linux-arm64",
+  "x86_64-apple-darwin": "ikuncodex-darwin-x64",
+  "aarch64-apple-darwin": "ikuncodex-darwin-arm64",
+  "x86_64-pc-windows-msvc": "ikuncodex-win32-x64",
+  "aarch64-pc-windows-msvc": "ikuncodex-win32-arm64",
 };
 
 const { platform, arch } = process;
@@ -234,5 +234,9 @@ if (childResult.type === "signal") {
    编号（如：1）：修改
    主要修改内容：将 npm 启动器的用户可见名称与更新提示统一改为 ikuncodex，同时保留内部原生二进制文件名为 codex。
    修改目的：让用户通过 npm 安装后可以使用 ikuncodex 命令启动，同时不破坏现有 vendor 目录中的原生二进制布局。
+
+   编号（如：2）：修改
+   主要修改内容：将平台可选依赖包名统一切换为 ikuncodex-* 子包，以支持主包+平台包拆分发布。
+   修改目的：避免主包携带全部平台二进制导致 npm 发布体积过大，并保持用户仍然使用 ikuncodex 命令启动。
 
 */

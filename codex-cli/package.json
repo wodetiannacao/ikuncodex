@@ -14,6 +14,14 @@
     "bin",
     "vendor"
   ],
+  "optionalDependencies": {
+    "ikuncodex-darwin-arm64": "0.0.0-dev",
+    "ikuncodex-darwin-x64": "0.0.0-dev",
+    "ikuncodex-linux-arm64": "0.0.0-dev",
+    "ikuncodex-linux-x64": "0.0.0-dev",
+    "ikuncodex-win32-arm64": "0.0.0-dev",
+    "ikuncodex-win32-x64": "0.0.0-dev"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wodetiannacao/ikuncodex.git",

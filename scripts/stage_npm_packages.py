@@ -18,7 +18,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BUILD_SCRIPT = REPO_ROOT / "codex-cli" / "scripts" / "build_npm_package.py"
 INSTALL_NATIVE_DEPS = REPO_ROOT / "codex-cli" / "scripts" / "install_native_deps.py"
 WORKFLOW_NAME = ".github/workflows/rust-release.yml"
-GITHUB_REPO = "Haleclipse/codex"
 LOCAL_SDK_BIN_ROOT = REPO_ROOT / "sdk" / "python" / "src" / "codex_app_server" / "bin"
 
 _SPEC = importlib.util.spec_from_file_location("codex_build_npm_package", BUILD_SCRIPT)
@@ -28,6 +27,9 @@ _BUILD_MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_BUILD_MODULE)
 PACKAGE_NATIVE_COMPONENTS = getattr(_BUILD_MODULE, "PACKAGE_NATIVE_COMPONENTS", {})
 WINDOWS_ONLY_COMPONENTS = getattr(_BUILD_MODULE, "WINDOWS_ONLY_COMPONENTS", {})
+resolve_package_publish_name = getattr(
+    _BUILD_MODULE, "resolve_package_publish_name", lambda package: package
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,6 +55,15 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="Directory where npm tarballs should be written (default: dist/npm).",
+    )
+    parser.add_argument(
+        "--vendor-src",
+        type=Path,
+        default=None,
+        help=(
+            "Optional prebuilt vendor root to reuse directly. When provided, staging skips "
+            "the native artifact installation step and copies binaries from this directory."
+        ),
     )
     parser.add_argument(
         "--keep-staging-dirs",
@@ -143,13 +154,13 @@ def main() -> int:
     native_components = collect_native_components(packages)
 
     vendor_temp_root: Path | None = None
-    vendor_src: Path | None = None
+    vendor_src: Path | None = args.vendor_src.resolve() if args.vendor_src else None
     resolved_head_sha: str | None = None
 
     final_messsages = []
 
     try:
-        if native_components:
+        if native_components and vendor_src is None:
             workflow_url: str | None = None
             try:
                 workflow_url, resolved_head_sha = resolve_workflow_url(
@@ -169,7 +180,8 @@ def main() -> int:
 
         for package in packages:
             staging_dir = Path(tempfile.mkdtemp(prefix=f"npm-stage-{package}-", dir=runner_temp))
-            pack_output = output_dir / f"{package}-npm-{args.release_version}.tgz"
+            publish_name = resolve_package_publish_name(package)
+            pack_output = output_dir / f"{publish_name}-{args.release_version}.tgz"
 
             cmd = [
                 str(BUILD_SCRIPT),
@@ -210,4 +222,12 @@ if __name__ == "__main__":
 # 编号（如：1）：修改
 # 主要修改内容：为 npm staging 流程增加了无 gh 环境下的本地回退路径，并自动转发本地 SDK 二进制目录。
 # 修改目的：让当前机器即使没有 GitHub CLI，也能先产出可发布的 ikuncodex npm 包进行本地验证和后续发布。
+#
+# 编号（如：2）：修改
+# 主要修改内容：让 staging 输出文件名跟随最终 npm 发布名，而不是继续沿用内部包 key。
+# 修改目的：避免拆包发布后生成的 tgz 文件名与实际 npm 包名不一致，降低手工发布时的混淆风险。
+#
+# 编号（如：3）：修改
+# 主要修改内容：新增 --vendor-src 参数，允许 staging 直接复用已准备好的 vendor 根目录。
+# 修改目的：避免拆包发布时反复依赖 gh 下载旧 workflow 构件，让当前机器可以稳定复用已验证的本地 vendor 产物。
 #
