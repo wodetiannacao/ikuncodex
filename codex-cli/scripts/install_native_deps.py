@@ -210,9 +210,14 @@ def main() -> int:
     gh_available = shutil.which("gh") is not None
     should_download_artifacts = bool(artifact_components) and workflow_id is not None and gh_available
 
-    if local_sdk_bin_root is not None and "codex" in components:
+    local_fallback_components = {
+        component
+        for component in components
+        if component in {"codex", "codex-windows-sandbox-setup", "codex-command-runner"}
+    }
+    if local_sdk_bin_root is not None and local_fallback_components:
         print(f"Copying local codex binaries from {local_sdk_bin_root}...")
-        install_local_codex_binaries(local_sdk_bin_root, vendor_dir)
+        install_local_codex_binaries(local_sdk_bin_root, vendor_dir, local_fallback_components)
 
     if should_download_artifacts:
         print(f"Downloading native artifacts from workflow {workflow_id}...")
@@ -310,7 +315,11 @@ def fetch_rg(
     return [results[target] for target in targets]
 
 
-def install_local_codex_binaries(local_sdk_bin_root: Path, vendor_dir: Path) -> list[Path]:
+def install_local_codex_binaries(
+    local_sdk_bin_root: Path,
+    vendor_dir: Path,
+    selected_components: set[str],
+) -> list[Path]:
     """Copy prebuilt codex binaries from the local Python SDK tree into vendor/."""
 
     local_sdk_bin_root = local_sdk_bin_root.resolve()
@@ -321,26 +330,48 @@ def install_local_codex_binaries(local_sdk_bin_root: Path, vendor_dir: Path) -> 
     host_target = detect_host_target_triple()
     for target, local_dir_name in TARGET_TO_LOCAL_SDK_DIR.items():
         src_dir = local_sdk_bin_root / local_dir_name
-        binary_name = "codex.exe" if "windows" in target else "codex"
-        src_binary = src_dir / binary_name
-        if target == host_target:
-            local_dev_binary = LOCAL_DEV_CODEX_DEBUG_DIR / binary_name
-            if local_dev_binary.exists():
-                # Prefer the developer-built host binary when available so local npm
-                # smoke tests exercise the freshly modified CLI instead of an older
-                # SDK snapshot.
-                src_binary = local_dev_binary
-        if not src_binary.exists():
-            raise FileNotFoundError(f"Expected local codex binary not found: {src_binary}")
-
         dest_dir = vendor_dir / target / "codex"
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest_binary = dest_dir / binary_name
-        shutil.copy2(src_binary, dest_binary)
-        if "windows" not in target:
-            dest_binary.chmod(0o755)
-        installed.append(dest_binary)
-        print(f"  installed local codex for {target}: {dest_binary}")
+
+        if "codex" in selected_components:
+            binary_name = "codex.exe" if "windows" in target else "codex"
+            src_binary = src_dir / binary_name
+            if target == host_target:
+                local_dev_binary = LOCAL_DEV_CODEX_DEBUG_DIR / binary_name
+                if local_dev_binary.exists():
+                    # Prefer the developer-built host binary when available so local npm
+                    # smoke tests exercise the freshly modified CLI instead of an older
+                    # SDK snapshot.
+                    src_binary = local_dev_binary
+            if not src_binary.exists():
+                raise FileNotFoundError(f"Expected local codex binary not found: {src_binary}")
+
+            dest_binary = dest_dir / binary_name
+            shutil.copy2(src_binary, dest_binary)
+            if "windows" not in target:
+                dest_binary.chmod(0o755)
+            installed.append(dest_binary)
+            print(f"  installed local codex for {target}: {dest_binary}")
+
+        if target == host_target and "windows" in target:
+            helper_names = {
+                "codex-windows-sandbox-setup": "codex-windows-sandbox-setup.exe",
+                "codex-command-runner": "codex-command-runner.exe",
+            }
+            for component, helper_name in helper_names.items():
+                if component not in selected_components:
+                    continue
+                helper_binary = LOCAL_DEV_CODEX_DEBUG_DIR / helper_name
+                if not helper_binary.exists():
+                    print(
+                        f"  skipped local helper {component} for {target}: "
+                        f"{helper_binary} not found"
+                    )
+                    continue
+                dest_helper = dest_dir / helper_name
+                shutil.copy2(helper_binary, dest_helper)
+                installed.append(dest_helper)
+                print(f"  installed local helper {component} for {target}: {dest_helper}")
 
     return installed
 
@@ -634,4 +665,8 @@ if __name__ == "__main__":
 # 编号（如：4）：修改
 # 主要修改内容：移除旧仓库 run id 的默认 workflow URL，改为通过环境变量或显式参数传入。
 # 修改目的：避免脚本在当前仓库里默认指向无效的旧 workflow，从而让正式拆包和本地复用 vendor 的行为更可预期。
+#
+# 编号（如：5）：修改
+# 主要修改内容：让本地 fallback 在 Windows 宿主机上额外复制本机已编译的 sandbox helper，可覆盖 x64 主力发布包的缺失 helper 问题。
+# 修改目的：避免 Windows x64 平台子包只带 codex.exe 而缺少关键 helper，降低安装后部分执行/沙箱场景失效的风险。
 #
