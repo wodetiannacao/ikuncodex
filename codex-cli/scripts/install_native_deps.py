@@ -139,8 +139,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--workflow-url",
         help=(
-            "GitHub Actions workflow URL that produced the artifacts. Defaults to a "
-            "known good run when omitted."
+            "GitHub Actions workflow URL that produced the artifacts. When omitted, the script "
+            "only downloads artifacts if IKUNCODEX_WORKFLOW_URL is set; otherwise it falls back "
+            "to local binaries and skips optional helper artifacts."
         ),
     )
     parser.add_argument(

@@ -88,6 +88,13 @@ COMPONENT_DEST_DIR: dict[str, str] = {
     "codex-command-runner": "codex",
     "rg": "path",
 }
+COMPONENT_EXPECTED_FILENAMES: dict[str, str] = {
+    "codex": "codex",
+    "codex-responses-api-proxy": "codex-responses-api-proxy",
+    "codex-windows-sandbox-setup": "codex-windows-sandbox-setup.exe",
+    "codex-command-runner": "codex-command-runner.exe",
+    "rg": "rg",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -411,6 +418,12 @@ def copy_native_binaries(
                 raise RuntimeError(
                     f"Missing native component '{component}' in vendor source: {src_component_dir}"
                 )
+            expected_filename = expected_component_filename(component, target_dir.name)
+            expected_binary = src_component_dir / expected_filename
+            if not expected_binary.exists():
+                raise RuntimeError(
+                    f"Missing native file for '{component}' in vendor source: {expected_binary}"
+                )
 
             dest_component_dir = dest_target_dir / dest_dir_name
             if dest_component_dir.exists():
@@ -460,6 +473,13 @@ def run_npm_pack(staging_dir: Path, output_path: Path) -> Path:
     return output_path
 
 
+def expected_component_filename(component: str, target: str) -> str:
+    filename = COMPONENT_EXPECTED_FILENAMES[component]
+    if component in {"codex", "codex-responses-api-proxy", "rg"} and "windows" in target:
+        return f"{filename}.exe"
+    return filename
+
+
 if __name__ == "__main__":
     import sys
 
@@ -477,4 +497,8 @@ if __name__ == "__main__":
 # 编号（如：3）：修改
 # 主要修改内容：新增 ikuncodex 平台子包元数据与 staging 逻辑，并让主包通过 optionalDependencies 依赖这些子包。
 # 修改目的：把原来超大的单一 npm 包拆成“轻量主包 + 平台子包”，绕开 npm 对超大上传包的限制。
+#
+# 编号（如：4）：修改
+# 主要修改内容：在复制 vendor 时显式校验每个组件对应的关键可执行文件，尤其是 Windows helper 文件。
+# 修改目的：避免 staging 在 helper 缺失时仍然表面成功，从而把不完整的平台包误发到 npm。
 #
